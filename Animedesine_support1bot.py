@@ -1,5 +1,5 @@
 # Animedesine_support1bot.py
-# python-telegram-bot==21.4
+# المتطلبات: python-telegram-bot==21.4
 
 import os
 from telegram import (
@@ -11,14 +11,28 @@ from telegram.ext import (
     ContextTypes, CallbackQueryHandler, filters
 )
 
-# ===== Env Vars من Koyeb =====
+# ===== متغيرات البيئة =====
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL_USERNAME = os.environ["CHANNEL_USERNAME"]     # مثال: @animedesine
 CHANNEL_LINK = os.environ["CHANNEL_LINK"]             # مثال: https://t.me/animedesine
 ADMIN_CHAT_ID = int(os.environ["ADMIN_CHAT_ID"])      # مثال: -4975906769
-# ==============================
+# ==========================
 
 ASK_CONTACT, ASK_REQUEST = range(2)
+
+# مساعدين لرسائل التحية
+def greeting_line(user) -> str:
+    name = user.first_name or user.full_name
+    return f"مرحبًا {name} 👋" if name else "مرحبًا بك 👋"
+
+def details_prompt(user) -> str:
+    first = greeting_line(user)
+    return (
+        f"{first}\n"
+        "يسعدني تواصلك معي 😄\n"
+        "كيف أستطيع خدمتك اليوم؟ ✨\n"
+        "📝 اكتب رسالتك أو طلبك بالتفصيل هنا."
+    )
 
 # زرّ الاشتراك
 def subscribe_keyboard():
@@ -35,24 +49,22 @@ async def is_member(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     except:
         return False
 
-# /start — ترحيب للجميع ثم منطق التحقق
+# /start — ترحيب للجميع ثم تحقّق الاشتراك
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    name = user.first_name or user.full_name or "بك"
 
-    # 1) رسالة ترحيبية (للجميع)
+    # (1) ترحيب قصير للجميع
     await update.message.reply_text(
-        f"👋 مرحبًا {name}!\n"
-        f"يسعدني تواصلك معي 😄\n"
-        f"كيف أستطيع خدمتك اليوم؟ 😊"
+        f"{greeting_line(user)}\n"
+        "أسعد الله أوقاتك بكل خير 🌺🍃"
     )
 
-    # 2) التحقق من الاشتراك
+    # (2) التحقق من الاشتراك
     if await is_member(user.id, context):
-        # مشترك مسبقًا → مباشرة نطلب التفاصيل أو وسيلة تواصل
+        # مشترك مسبقًا → نطلب التفاصيل (أو نطلب وسيلة تواصل أولًا إذا لا يوجد username)
         if user.username:
             context.user_data["contact"] = f"@{user.username}"
-            await update.message.reply_text("📝 اكتب تفاصيل طلبك الآن ✨:")
+            await update.message.reply_text(details_prompt(user))
             return ASK_REQUEST
         else:
             contact_btn = KeyboardButton("📱 مشاركة رقم الهاتف", request_contact=True)
@@ -70,7 +82,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-# زر “تم الاشتراك”
+# زر “✅ تم الاشتراك”
 async def check_sub_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -78,17 +90,18 @@ async def check_sub_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not await is_member(user.id, context):
         await query.edit_message_text(
-            "❌ ما زلت غير مشترك.\nاشترك ثم اضغط «✅ تم الاشتراك».",
+            "❌ ما زلت غير مشترك.\n"
+            "📢 اشترك بالقناة عبر الزر ثم اضغط «✅ تم الاشتراك».",
             reply_markup=subscribe_keyboard()
         )
         return ConversationHandler.END
 
-    # صار مشترك الآن → نكمل لجمع التفاصيل
+    # صار مشترك الآن
     await query.edit_message_text("✅ تم التحقق من الاشتراك، شكرًا لك! 🙏")
 
     if user.username:
         context.user_data["contact"] = f"@{user.username}"
-        await context.bot.send_message(chat_id=user.id, text="📝 اكتب تفاصيل طلبك الآن ✨:")
+        await context.bot.send_message(chat_id=user.id, text=details_prompt(user))
         return ASK_REQUEST
     else:
         contact_btn = KeyboardButton("📱 مشاركة رقم الهاتف", request_contact=True)
@@ -108,7 +121,8 @@ async def get_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         context.user_data["contact"] = (update.message.text or "").strip()
 
-    await update.message.reply_text("📝 الآن اكتب تفاصيل طلبك بالتفصيل 📦✨:")
+    # بعد تزويد وسيلة التواصل → نرسل طلب التفاصيل
+    await update.message.reply_text(details_prompt(update.effective_user))
     return ASK_REQUEST
 
 # استقبال تفاصيل الطلب + ملخص للمدير + تأكيد للعميل
@@ -135,7 +149,7 @@ async def get_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         disable_web_page_preview=True
     )
 
-    # 5) تأكيد للعميل
+    # تأكيد للعميل
     await update.message.reply_text(
         "✅ تم استلام طلبك! سأتابع معك بأقرب وقت ممكن.\n"
         "شكرًا لك 🙏"
@@ -148,8 +162,10 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start),
-                      CallbackQueryHandler(check_sub_cb, pattern="^check_sub$")],
+        entry_points=[
+            CommandHandler("start", start),
+            CallbackQueryHandler(check_sub_cb, pattern="^check_sub$")
+        ],
         states={
             ASK_CONTACT: [MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), get_contact)],
             ASK_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_request)],
